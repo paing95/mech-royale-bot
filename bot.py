@@ -21,15 +21,21 @@ PRESETS = {
     "nearer": {"RANGE_LASER": 25.0, "RANGE_GUN": 20.0, "RELOAD_COVER": True},  # scored 5.17
     "nearaggro": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.7, "HEAL_BELOW": 0.5,
                   "RETREAT_AT": 0.35},  # scored 5.42
+    "zap": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.7, "HEAL_BELOW": 0.5,
+            "RETREAT_AT": 0.35, "RANK": {"lightning": 3, "laser": 2, "mortar": 1, "gun": 0}},  # sim: much worse
+    "aggA": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.6, "HEAL_BELOW": 0.42,
+             "RETREAT_AT": 0.3},
+    "aggB": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.78, "HEAL_BELOW": 0.6,
+             "RETREAT_AT": 0.4},
     "berserk": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.45, "HEAL_BELOW": 0.3,
-                "RETREAT_AT": 0.2},
+                "RETREAT_AT": 0.2},  # scored 5.13
     "nearheal": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.95, "HEAL_BELOW": 0.92},  # scored 5.10
     "nearup": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "UPGRADES": [
         "armor", "nanites", "plating", "gun_damage", "gun_rate", "laser_damage", "laser_charge",
         "lightning_efficiency", "gun_mag", "gyros"]},  # scored 4.96
     "lead":  {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": True, "LEAD_FRAC": 0.7},
 }
-PRESET = "berserk"
+PRESET = "nearaggro"
 # ------------------------------------------------------------------------------------------
 
 TAU = 2 * math.pi
@@ -102,6 +108,7 @@ class Bot:
         self.ROOF = False
         self.LEAD_FRAC = 1.0
         self.HEAL_BELOW = 0.75
+        self.RANK = dict(WEAPON_RANK)
         self.UPGRADES = None
         self.roof = None
         self.roof_key = None
@@ -465,9 +472,9 @@ class Bot:
         for k, i in kinds.items():
             if k == "gun":
                 continue
-            if worst is None or WEAPON_RANK[k] < WEAPON_RANK[worst[0]]:
+            if worst is None or self.RANK[k] < self.RANK[worst[0]]:
                 worst = (k, i)
-        if worst and WEAPON_RANK[kind] > WEAPON_RANK[worst[0]]:
+        if worst and self.RANK[kind] > self.RANK[worst[0]]:
             return ("swap", worst[1])
         return None
 
@@ -486,7 +493,7 @@ class Bot:
                 wi = weapons[w[1]]
                 if wi and wi.get("charge", 0) > 0:
                     continue
-            if best is None or WEAPON_RANK[pk["kind"]] > WEAPON_RANK[best[0]["kind"]]:
+            if best is None or self.RANK[pk["kind"]] > self.RANK[best[0]["kind"]]:
                 best = (pk, w)
         if best:
             act["take"] = best[0]["id"]
@@ -697,7 +704,8 @@ class Bot:
                 mv = self.go_to(obs, cov, t)
                 return mv, me["energy"] > 20
         # preferred range
-        if "lightning" in kinds and "laser" not in kinds and "mortar" not in (target.get("weapons") or []):
+        if "lightning" in kinds and ("laser" not in kinds or self.RANK["lightning"] > self.RANK["laser"]) \
+                and "mortar" not in (target.get("weapons") or []):
             want = 28.0
         elif "laser" in kinds:
             want = self.RANGE_LASER
@@ -981,7 +989,8 @@ class Bot:
                 continue
             if not self.inside_next(z, pos[:2], 1.0) and d > 40 and kind != "laser":
                 continue
-            bonus = self.LASER_BONUS if kind == "laser" else WEAPON_RANK[kind] * 25
+            top = max(self.RANK, key=self.RANK.get)
+            bonus = self.LASER_BONUS if kind == top else self.RANK[kind] * 25
             cands.append((d - bonus, ("weapon", pid, pos)))
         # 2. cubes
         for cid, (pos, ts) in self.cubes.items():
