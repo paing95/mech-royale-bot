@@ -10,6 +10,15 @@ try:
 except Exception:  # pragma: no cover
     World = None
 
+# ---- tuning presets: change PRESET to test a variant on the real scorer -----------------
+PRESETS = {
+    "v1":    {"RANGE_LASER": 95.0, "RANGE_GUN": 70.0, "RELOAD_COVER": False},  # scored 5.04
+    "close": {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": False},
+    "peek":  {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": True},
+}
+PRESET = "close"
+# ------------------------------------------------------------------------------------------
+
 TAU = 2 * math.pi
 WEAPON_RANK = {"laser": 3, "lightning": 2, "mortar": 1, "gun": 0}
 UPGRADE_PRIORITY = [
@@ -30,7 +39,7 @@ def norm2(x, y):
 
 
 class Bot:
-    name = "mech-royal-bot"
+    name = "mech-royale-bot"
 
     def __init__(self, hello):
         t0 = time.time()
@@ -74,6 +83,11 @@ class Bot:
         self.cover_t = -99.0
         self.goal_name = ""
         self.recovering = False
+        self.RANGE_LASER = 95.0
+        self.RANGE_GUN = 70.0
+        self.RELOAD_COVER = False
+        self.LASER_BONUS = 75.0
+        self.CRATE_RANGE_NOLASER = 160.0
         self.crate_shots = {}
         self.prog = None
         self.jet_until = -1.0
@@ -84,7 +98,9 @@ class Bot:
         self.RESUME_AT = 0.85
         self.loot_goal = None
         self.loot_goal_since = 0.0
-        mf.log(f"init {time.time() - t0:.2f}s map={'ok' if self.world else 'none'}")
+        for k, v in PRESETS.get(PRESET, {}).items():
+            setattr(self, k, v)
+        mf.log(f"init {time.time() - t0:.2f}s preset={PRESET} map={'ok' if self.world else 'none'}")
 
     # ================================================================ helpers
     def ground(self, x, y):
@@ -620,6 +636,18 @@ class Bot:
         if their_hp < 250 and my_hp > their_hp * 1.5 and n_threat == 1:
             self.recovering = False
         losing = self.recovering
+        if self.RELOAD_COVER and not losing:
+            ws = {w["kind"]: w for w in me["weapons"] if w}
+            g = ws.get("gun")
+            reloading = g is not None and (g.get("reload", 0) > 0.6 or g.get("ammo", 1) == 0)
+            lz = ws.get("laser")
+            laser_ready = lz is not None and lz.get("cooldown", 0) < 0.3
+            lightning_ready = "lightning" in ws and d < 45 and me["energy"] > 20
+            if reloading and not laser_ready and not lightning_ready and their_hp > 200:
+                cov = self.find_cover(obs, me, vis, t)
+                if cov is not None and math.dist(cov, p[:2]) < 30:
+                    self.goal_name = "reload-cover"
+                    return self.go_to(obs, cov, t), me["energy"] > 20
         if zone_urgent:
             self.goal_name = "zone(fight)"
             mv = self.go_to(obs, self.zone_goal(z, p), t)
@@ -634,9 +662,9 @@ class Bot:
         if "lightning" in kinds and "laser" not in kinds and "mortar" not in (target.get("weapons") or []):
             want = 28.0
         elif "laser" in kinds:
-            want = 95.0
+            want = self.RANGE_LASER
         else:
-            want = 70.0
+            want = self.RANGE_GUN
         if hp_frac < 0.5:
             want += 40
         radial = 0.0
@@ -803,9 +831,10 @@ class Bot:
             d = math.dist(pos[:2], p[:2])
             if d / 11 > budget:
                 continue
-            if not self.inside_next(z, pos[:2], 1.0) and d > 40:
+            if not self.inside_next(z, pos[:2], 1.0) and d > 40 and kind != "laser":
                 continue
-            cands.append((d - WEAPON_RANK[kind] * 25, ("weapon", pid, pos)))
+            bonus = self.LASER_BONUS if kind == "laser" else WEAPON_RANK[kind] * 25
+            cands.append((d - bonus, ("weapon", pid, pos)))
         # 2. cubes
         for cid, (pos, ts) in self.cubes.items():
             if self.bad_targets.get(cid, -1) > t:
@@ -836,7 +865,8 @@ class Bot:
             if pos[2] - self.ground(pos[0], pos[1]) > 3:
                 continue
             d = math.dist(pos[:2], p[:2])
-            if d > 160 or d / 11 > budget:
+            crange = 160 if "laser" in kinds else self.CRATE_RANGE_NOLASER
+            if d > crange or d / 11 > budget:
                 continue
             cands.append((d + 10, ("crate", cid, pos)))
         if cands:
