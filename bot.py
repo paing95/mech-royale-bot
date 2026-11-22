@@ -41,7 +41,7 @@ PRESETS = {
         "lightning_efficiency", "gun_mag", "gyros"]},  # scored 4.96
     "lead":  {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": True, "LEAD_FRAC": 0.7},
 }
-PRESET = "tactical"
+PRESET = "tactical2"
 # ------------------------------------------------------------------------------------------
 
 TAU = 2 * math.pi
