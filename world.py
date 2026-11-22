@@ -113,6 +113,47 @@ class World:
         f4 = centre & (frac > 0.45)
         self.free4 = f4
         self.f4 = f4.ravel().tolist()
+        self.roofs = []
+        for p in w["prisms"]:
+            if p.get("kind") == "bridge":
+                continue
+            ring = p["ring"]
+            xs, ys = ring[0::2], ring[1::2]
+            i0 = max(0, int(math.floor(min(xs) - self.x0)))
+            i1 = min(nx - 1, int(math.ceil(max(xs) - self.x0)))
+            j0 = max(0, int(math.floor(min(ys) - self.y0)))
+            j1 = min(ny - 1, int(math.ceil(max(ys) - self.y0)))
+            if i1 - i0 < 12 or j1 - j0 < 12:
+                continue
+            top = float(p["top"])
+            sl = (slice(j0, j1 + 1), slice(i0, i1 + 1))
+            m = np.abs(self.surf[sl] - top) < 0.3
+            if m.sum() < 150:
+                continue
+            g = float(np.median(G[sl][m]))
+            h = top - g
+            if h < 7 or h > 48:
+                continue
+            # distance to the roof edge by repeated erosion
+            dist = np.zeros(m.shape, np.int16)
+            cur = m.copy()
+            k = 0
+            while cur.any() and k < 30:
+                k += 1
+                dist[cur] = k
+                nb = cur.copy()
+                nb[1:, :] &= cur[:-1, :]
+                nb[:-1, :] &= cur[1:, :]
+                nb[:, 1:] &= cur[:, :-1]
+                nb[:, :-1] &= cur[:, 1:]
+                nb[0, :] = nb[-1, :] = False
+                nb[:, 0] = nb[:, -1] = False
+                cur = nb
+            r = int(dist.max())
+            if r < 7:
+                continue
+            jj, ii = np.unravel_index(int(np.argmax(dist)), dist.shape)
+            self.roofs.append({"x": self.x0 + i0 + ii, "y": self.y0 + j0 + jj, "z": top, "h": h, "r": float(r)})
         self.build_s = time.time() - t0
 
     # ---------------------------------------------------------------- lookups

@@ -14,7 +14,10 @@ except Exception:  # pragma: no cover
 PRESETS = {
     "v1":    {"RANGE_LASER": 95.0, "RANGE_GUN": 70.0, "RELOAD_COVER": False},  # scored 5.04
     "close": {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": False},
-    "peek":  {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": True},
+    "peek":  {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": True},  # scored 5.27
+    "roof":  {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": True, "ROOF": True},  # sim: much worse
+    "near":  {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True},
+    "lead":  {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": True, "LEAD_FRAC": 0.7},
 }
 PRESET = "peek"
 # ------------------------------------------------------------------------------------------
@@ -86,6 +89,13 @@ class Bot:
         self.RANGE_LASER = 95.0
         self.RANGE_GUN = 70.0
         self.RELOAD_COVER = False
+        self.ROOF = False
+        self.LEAD_FRAC = 1.0
+        self.roof = None
+        self.roof_key = None
+        self.last_enemy_t = -99.0
+        self.roof_fail = {}
+        self.roof_try_t = -99.0
         self.LASER_BONUS = 75.0
         self.CRATE_RANGE_NOLASER = 160.0
         self.crate_shots = {}
@@ -93,6 +103,7 @@ class Bot:
         self.jet_until = -1.0
         self.jet_dir = (1.0, 0.0)
         self.want_jet = False
+        self.want_jump = False
         self.crate_hit_t = {}
         self.RETREAT_AT = 0.45
         self.RESUME_AT = 0.85
@@ -285,6 +296,7 @@ class Bot:
                     del store[k]
         for m in obs["mechs"]:
             if m["kind"] == "mech":
+                self.last_enemy_t = t
                 d = dict(m)
                 d["t"] = t
                 self.enemies[m["id"]] = d
@@ -363,8 +375,17 @@ class Bot:
 
         unseen_fire = (not vis and recent_dmg and self.last_dmg_by is not None and self.last_dmg_by < 100
                        and self.last_dmg_bearing is not None)
+        roof_ctl = None
+        if self.ROOF and self.world is not None:
+            roof_ctl = self.roof_control(obs, me, target, vis, zone_urgent, hp_frac, t)
         # ---------------------------------------------------------- decide movement
-        if unseen_fire:
+        if roof_ctl is not None:
+            move, boost, rjump = roof_ctl
+            if rjump:
+                self.want_jump = True
+            if target is None:
+                target = self.crate_or_npc_target(obs, me, kinds, hp_frac) if not vis else None
+        elif unseen_fire:
             move, boost = self.evade_unseen(obs, me, zone_urgent, t)
             target = None
         elif target is not None and target["kind"] == "mech":
@@ -375,7 +396,7 @@ class Bot:
                 target = self.crate_or_npc_target(obs, me, kinds, hp_frac)
 
         # ---------------------------------------------------------- dodge incoming
-        dmove = self.dodge(obs, me)
+        dmove = self.dodge(obs, me) if roof_ctl is None else None
         if dmove is not None:
             move = (move[0] * 0.3 + dmove[0], move[1] * 0.3 + dmove[1])
             move = norm2(*move)
@@ -395,7 +416,11 @@ class Bot:
             aim = self.look_dir(obs, me, move, t)
 
         # ---------------------------------------------------------- unstick
-        move, jump, boost = self.unstick(me, move, boost, t)
+        if roof_ctl is None:
+            move, jump, boost = self.unstick(me, move, boost, t)
+        else:
+            jump = self.want_jump
+        self.want_jump = False
         if self.want_jet:
             if me["grounded"]:
                 jump = True
@@ -527,7 +552,8 @@ class Bot:
         if gi is not None:
             gw = weapons[gi]
             st = gw["stats"]
-            q = self.lead(src, q0, vel, st.get("speed", 252), grounded_guess=abs(vel[2]) < 2)
+            lv = [vel[0] * self.LEAD_FRAC, vel[1] * self.LEAD_FRAC, vel[2] * self.LEAD_FRAC]
+            q = self.lead(src, q0, lv, st.get("speed", 252), grounded_guess=abs(vel[2]) < 2)
             cands["gun"] = self.yaw_pitch(src, q)
             gun_ready = (dist < st.get("range", 230) * 0.98 and has_los and gw.get("ammo", 1) > 0
                          and gw.get("reload", 0) == 0)
@@ -715,6 +741,116 @@ class Bot:
             self.strafe = -self.strafe
             self.strafe_until = t + self.rng.uniform(0.5, 1.2)
         return self.steer(p, -math.sin(b) * self.strafe, math.cos(b) * self.strafe), me["energy"] > 30
+
+    # ================================================================ rooftop play
+    def choose_roof(self, obs, me, t):
+        z = obs["zone"]
+        c1, r1 = z["next_center"], z["next_radius"]
+        p = me["pos"]
+        best = None
+        for k, rf in enumerate(self.world.roofs):
+            if self.roof_fail.get(k, -1) > t:
+                continue
+            if rf["h"] < 8 or rf["h"] > 32:
+                continue
+            if math.dist((rf["x"], rf["y"]), c1) > r1 * 0.8 - rf["r"]:
+                continue
+            d = math.dist((rf["x"], rf["y"]), p[:2])
+            if d > 260:
+                continue
+            sc = d + rf["h"] * 1.5 - min(rf["r"], 20) * 1.5
+            if best is None or sc < best[0]:
+                best = (sc, k)
+        return best[1] if best else None
+
+    def on_roof(self, me):
+        if self.roof is None:
+            return False
+        rf = self.world.roofs[self.roof]
+        p = me["pos"]
+        return abs(p[2] - rf["z"]) < 2.0 and math.dist(p[:2], (rf["x"], rf["y"])) < rf["r"] + 2
+
+    def roof_control(self, obs, me, target, vis, zone_urgent, hp_frac, t):
+        """Return (move, boost, jump) while using a roof, or None to fall back to normal play."""
+        p = me["pos"]
+        z = obs["zone"]
+        threat = (t - self.last_enemy_t < 25) or (t - self.last_dmg_t < 8 and (self.last_dmg_by or 0) < 100)
+        key = (round(z["next_center"][0]), round(z["next_center"][1]), round(z["next_radius"]))
+        if self.roof_key != key:
+            self.roof_key = key
+            self.roof = None
+        if zone_urgent:
+            return None
+        up = self.on_roof(me)
+        if not threat and not up:
+            return None
+        if self.roof is None:
+            self.roof = self.choose_roof(obs, me, t)
+            self.roof_try_t = t
+            if self.roof is None:
+                return None
+        rf = self.world.roofs[self.roof]
+        cx, cy = rf["x"], rf["y"]
+        R = max(2.0, rf["r"] - 4.0)
+        if up:
+            self.roof_try_t = t
+            ws = {w["kind"]: w for w in me["weapons"] if w}
+            g = ws.get("gun")
+            reloading = g is not None and (g.get("reload", 0) > 0.6 or g.get("ammo", 1) == 0)
+            lz = ws.get("laser")
+            laser_ready = lz is not None and lz.get("cooldown", 0) < 0.3
+            hide = hp_frac < 0.45 or (reloading and not laser_ready)
+            if target is not None and target.get("kind") == "mech" and not hide:
+                tp = target["pos"]
+                ux, uy = norm2(tp[0] - cx, tp[1] - cy)
+                src = self.muzzle(me)
+                if self.los(src, self.aim_point(target)):
+                    # hold position, small strafe along the edge
+                    if t > self.strafe_until:
+                        self.strafe = -self.strafe
+                        self.strafe_until = t + self.rng.uniform(0.6, 1.4)
+                    gx, gy = p[0] - uy * self.strafe * 3, p[1] + ux * self.strafe * 3
+                else:
+                    gx, gy = cx + ux * R, cy + uy * R
+                self.goal_name = "roof-fight"
+            else:
+                gx, gy = cx, cy
+                self.goal_name = "roof-hide"
+            # stay on the roof
+            ox, oy = gx - cx, gy - cy
+            od = math.hypot(ox, oy)
+            if od > R:
+                gx, gy = cx + ox / od * R, cy + oy / od * R
+            dx, dy = gx - p[0], gy - p[1]
+            dd = math.hypot(dx, dy)
+            if dd < 1.0:
+                return (0.0, 0.0), False, False
+            sp = min(1.0, dd / 4.0)
+            return (dx / dd * sp, dy / dd * sp), False, False
+        # not up yet: give up on roofs we can't reach in time
+        if t - self.roof_try_t > 25:
+            self.roof_fail[self.roof] = t + 60
+            self.roof = None
+            return None
+        if hp_frac < 0.2:
+            return None
+        d = math.dist(p[:2], (cx, cy))
+        need = min(95.0, (rf["h"] + 4) * 1.7)
+        airborne = not me["grounded"]
+        if airborne and p[2] > rf["z"] - 25:
+            self.goal_name = "roof-climb"
+            boost = p[2] < rf["z"] + 1.5 and me["energy"] > 1
+            return norm2(cx - p[0], cy - p[1]), boost, False
+        if d > rf["r"] + 9:
+            self.goal_name = "roof-go"
+            mv = self.go_to(obs, (cx, cy), t)
+            self.want_jet = False
+            return mv, False, False
+        if me["energy"] >= need:
+            self.goal_name = "roof-jump"
+            return norm2(cx - p[0], cy - p[1]), False, True
+        self.goal_name = "roof-wait"
+        return (0.0, 0.0), False, False
 
     def kinds_of(self, me):
         return {w["kind"]: i for i, w in enumerate(me["weapons"]) if w}
