@@ -21,7 +21,7 @@ PRESETS = {
     "nearer": {"RANGE_LASER": 25.0, "RANGE_GUN": 20.0, "RELOAD_COVER": True},
     "lead":  {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": True, "LEAD_FRAC": 0.7},
 }
-PRESET = "nearlead"
+PRESET = "nearer"
 # ------------------------------------------------------------------------------------------
 
 TAU = 2 * math.pi
