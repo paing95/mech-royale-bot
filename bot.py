@@ -19,13 +19,15 @@ PRESETS = {
     "near":  {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True},  # scored 5.33
     "nearlead": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "LEAD_FRAC": 0.7},  # scored 4.96
     "nearer": {"RANGE_LASER": 25.0, "RANGE_GUN": 20.0, "RELOAD_COVER": True},  # scored 5.17
-    "nearheal": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.95, "HEAL_BELOW": 0.92},
+    "nearaggro": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.7, "HEAL_BELOW": 0.5,
+                  "RETREAT_AT": 0.35},
+    "nearheal": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.95, "HEAL_BELOW": 0.92},  # scored 5.10
     "nearup": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "UPGRADES": [
         "armor", "nanites", "plating", "gun_damage", "gun_rate", "laser_damage", "laser_charge",
-        "lightning_efficiency", "gun_mag", "gyros"]},
+        "lightning_efficiency", "gun_mag", "gyros"]},  # scored 4.96
     "lead":  {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": True, "LEAD_FRAC": 0.7},
 }
-PRESET = "nearup"
+PRESET = "nearaggro"
 # ------------------------------------------------------------------------------------------
 
 TAU = 2 * math.pi
