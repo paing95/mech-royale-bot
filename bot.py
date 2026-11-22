@@ -17,11 +17,15 @@ PRESETS = {
     "peek":  {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": True},  # scored 5.27
     "roof":  {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": True, "ROOF": True},  # sim: much worse
     "near":  {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True},  # scored 5.33
-    "nearlead": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "LEAD_FRAC": 0.7},
-    "nearer": {"RANGE_LASER": 25.0, "RANGE_GUN": 20.0, "RELOAD_COVER": True},
+    "nearlead": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "LEAD_FRAC": 0.7},  # scored 4.96
+    "nearer": {"RANGE_LASER": 25.0, "RANGE_GUN": 20.0, "RELOAD_COVER": True},  # scored 5.17
+    "nearheal": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.95, "HEAL_BELOW": 0.92},
+    "nearup": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "UPGRADES": [
+        "armor", "nanites", "plating", "gun_damage", "gun_rate", "laser_damage", "laser_charge",
+        "lightning_efficiency", "gun_mag", "gyros"]},
     "lead":  {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": True, "LEAD_FRAC": 0.7},
 }
-PRESET = "nearer"
+PRESET = "nearheal"
 # ------------------------------------------------------------------------------------------
 
 TAU = 2 * math.pi
@@ -93,6 +97,8 @@ class Bot:
         self.RELOAD_COVER = False
         self.ROOF = False
         self.LEAD_FRAC = 1.0
+        self.HEAL_BELOW = 0.75
+        self.UPGRADES = None
         self.roof = None
         self.roof_key = None
         self.last_enemy_t = -99.0
@@ -342,8 +348,8 @@ class Bot:
         # ---- upgrades
         if obs.get("offer"):
             ch = obs["offer"]["choices"]
-            best = min(range(len(ch)), key=lambda i: UPGRADE_PRIORITY.index(ch[i]["id"])
-                       if ch[i]["id"] in UPGRADE_PRIORITY else 99)
+            pri = list(self.UPGRADES or []) + [u for u in UPGRADE_PRIORITY if u not in (self.UPGRADES or [])]
+            best = min(range(len(ch)), key=lambda i: pri.index(ch[i]["id"]) if ch[i]["id"] in pri else 99)
             act["pick"] = best
 
         weapons = me["weapons"]
@@ -941,7 +947,7 @@ class Bot:
                 return self.go_to(obs, cov, t), False
 
         # after a fight: collect what's close, then sit still out of sight and regen
-        if hp_frac < 0.75 and 2.5 < t - self.last_dmg_t < 30:
+        if hp_frac < self.HEAL_BELOW and 2.5 < t - self.last_dmg_t < 30:
             grab = self.nearby_loot(me, kinds, maxd=35.0)
             if grab is not None:
                 self.goal_name = "grab"
