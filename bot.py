@@ -16,10 +16,12 @@ PRESETS = {
     "close": {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": False},
     "peek":  {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": True},  # scored 5.27
     "roof":  {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": True, "ROOF": True},  # sim: much worse
-    "near":  {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True},
+    "near":  {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True},  # scored 5.33
+    "nearlead": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "LEAD_FRAC": 0.7},
+    "nearer": {"RANGE_LASER": 25.0, "RANGE_GUN": 20.0, "RELOAD_COVER": True},
     "lead":  {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": True, "LEAD_FRAC": 0.7},
 }
-PRESET = "peek"
+PRESET = "nearlead"
 # ------------------------------------------------------------------------------------------
 
 TAU = 2 * math.pi
