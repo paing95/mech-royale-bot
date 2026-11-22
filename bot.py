@@ -27,6 +27,12 @@ PRESETS = {
              "RETREAT_AT": 0.3},
     "aggB": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.78, "HEAL_BELOW": 0.6,
              "RETREAT_AT": 0.4},
+    "tactical": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.7, "HEAL_BELOW": 0.5,
+                 "RETREAT_AT": 0.35, "T_GROUP": True, "T_NOCHASE": True, "T_FARM": True, "T_AMBUSH": True,
+                 "T_DROPS": True, "T_DODGE": True, "T_MORTAR": True, "T_BACKS": True},  # sim 5.19
+    "tactical2": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.7, "HEAL_BELOW": 0.5,
+                  "RETREAT_AT": 0.35, "T_NOCHASE": True, "T_FARM": True, "T_AMBUSH": True,
+                  "T_DROPS": True, "T_DODGE": True, "T_MORTAR": True},  # sim 5.44
     "berserk": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.45, "HEAL_BELOW": 0.3,
                 "RETREAT_AT": 0.2},  # scored 5.13
     "nearheal": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.95, "HEAL_BELOW": 0.92},  # scored 5.10
@@ -35,7 +41,7 @@ PRESETS = {
         "lightning_efficiency", "gun_mag", "gyros"]},  # scored 4.96
     "lead":  {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": True, "LEAD_FRAC": 0.7},
 }
-PRESET = "aggB"
+PRESET = "tactical"
 # ------------------------------------------------------------------------------------------
 
 TAU = 2 * math.pi
@@ -109,6 +115,15 @@ class Bot:
         self.LEAD_FRAC = 1.0
         self.HEAL_BELOW = 0.75
         self.RANK = dict(WEAPON_RANK)
+        # tactical switches (all off = nearaggro behaviour)
+        self.T_GROUP = self.T_NOCHASE = self.T_FARM = self.T_AMBUSH = False
+        self.T_DROPS = self.T_DODGE = self.T_MORTAR = self.T_BACKS = False
+        self.CHASE_D = 70.0
+        self.hold_until = -1.0
+        self.ambush_until = -1.0
+        self.ambush_spot = None
+        self.ambush_cool = -1.0
+        self.drop_scout = None
         self.UPGRADES = None
         self.roof = None
         self.roof_key = None
@@ -407,6 +422,10 @@ class Bot:
         elif unseen_fire:
             move, boost = self.evade_unseen(obs, me, zone_urgent, t)
             target = None
+        elif (target is not None and target["kind"] == "mech" and self.T_NOCHASE
+              and math.dist(target["pos"], p) > self.CHASE_D and t - self.last_dmg_t > 4
+              and sum(1 for m in vis if math.dist(m["pos"], p) < 120) <= 1):
+            move, boost = self.explore_move(obs, me, zone_urgent, slack, hp_frac, t, kinds, dbg)
         elif target is not None and target["kind"] == "mech":
             move, boost = self.combat_move(obs, me, target, vis, zone_urgent, hp_frac, t, dbg)
         else:
@@ -414,6 +433,11 @@ class Bot:
             if target is None:
                 target = self.crate_or_npc_target(obs, me, kinds, hp_frac)
 
+        # ---------------------------------------------------------- laser dodge
+        if self.T_DODGE and roof_ctl is None:
+            lm = self.laser_dodge(obs, me, vis, t)
+            if lm is not None:
+                move, boost = lm
         # ---------------------------------------------------------- dodge incoming
         dmove = self.dodge(obs, me) if roof_ctl is None else None
         if dmove is not None:
@@ -431,8 +455,17 @@ class Bot:
                     self.bad_targets[cid] = t + 40
                     self.crate_shots[cid] = 0
         else:
-            # release a laser charge if we lost the target, otherwise hold nothing
-            aim = self.look_dir(obs, me, move, t)
+            aim = None
+            if self.T_MORTAR and "mortar" in kinds and weapons[kinds["mortar"]].get("cooldown", 0) <= 0.3:
+                ghost = [m for m in self.enemies.values()
+                         if m.get("id", -1) >= 0 and 1.0 < t - m["t"] < 10 and 40 < math.dist(m["pos"][:2], p[:2]) < 220]
+                if ghost:
+                    g = min(ghost, key=lambda m: math.dist(m["pos"], p))
+                    gt = dict(g, vel=[0, 0, 0], kind="mech")
+                    aim, fire = self.shoot(obs, me, gt, {"mortar": kinds["mortar"]}, weapons, dbg)
+                    self.goal_name += "+lob"
+            if aim is None:
+                aim = self.look_dir(obs, me, move, t)
 
         # ---------------------------------------------------------- unstick
         if roof_ctl is None:
@@ -512,6 +545,10 @@ class Bot:
                 s += 120
             if m.get("charging"):
                 s -= 20
+            if self.T_BACKS:
+                to_me = math.atan2(p[1] - m["pos"][1], p[0] - m["pos"][0])
+                if abs(wrap(m["aim"][0] - to_me)) > math.pi / 2:
+                    s -= 30
             return s
 
         return min(vis, key=score)
@@ -604,7 +641,10 @@ class Bot:
 
         # choose what the torso aims for this tick
         mortar_ready = msol is not None and weapons[mi].get("cooldown", 0) <= 0.3
-        if "laser" in cands and laser_frac >= 0.6 and has_los:
+        high = self.T_MORTAR and is_mech and me["pos"][2] - tp[2] > 6
+        if mortar_ready and high and laser_frac < 0.6:
+            mode = "mortar"
+        elif "laser" in cands and laser_frac >= 0.6 and has_los:
             mode = "laser"
         elif gun_ready:
             mode = "gun"
@@ -681,6 +721,21 @@ class Bot:
         if their_hp < 250 and my_hp > their_hp * 1.5 and n_threat == 1:
             self.recovering = False
         losing = self.recovering
+        if self.T_GROUP and not zone_urgent:
+            me_c = (p[0], p[1], p[2] + 4.5)
+            seeing = [m for m in vis if math.dist(m["pos"], p) < 200
+                      and self.los((m["pos"][0], m["pos"][1], m["pos"][2] + 8), me_c)]
+            weak_single = their_hp < 300 and len(seeing) <= 1
+            if len(seeing) >= 2 and not weak_single:
+                cov = self.find_cover(obs, me, vis, t)
+                if cov is not None and math.dist(cov, p[:2]) < 35:
+                    self.hold_until = t + 3.0
+                    self.goal_name = "group-cover"
+                    return self.go_to(obs, cov, t), me["energy"] > 20
+            if t < self.hold_until and not seeing:
+                # behind cover: let them come around the corner one by one
+                self.goal_name = "hold"
+                return (0.0, 0.0), False
         if self.RELOAD_COVER and not losing:
             ws = {w["kind"]: w for w in me["weapons"] if w}
             g = ws.get("gun")
@@ -735,7 +790,10 @@ class Bot:
             self.goal_name = "grab"
             mx, my = self.steer(p, *norm2(mv[0] + sx * 0.25, mv[1] + sy * 0.25))
             return (mx, my), me["energy"] > 40
-        if radial > 0 and d > want + 25:
+        if self.T_NOCHASE and radial > 0 and d > self.CHASE_D and t - self.last_dmg_t > 4:
+            radial = 0.0
+            mx, my = sx * 0.8, sy * 0.8
+        elif radial > 0 and d > want + 25:
             # close distance with pathing
             mv = self.go_to(obs, (tp[0], tp[1]), t)
             mx, my = mv[0] * 0.8 + sx * 0.3, mv[1] * 0.8 + sy * 0.3
@@ -872,6 +930,32 @@ class Bot:
         self.goal_name = "roof-wait"
         return (0.0, 0.0), False, False
 
+    def laser_dodge(self, obs, me, vis, t):
+        p = me["pos"]
+        me_c = (p[0], p[1], p[2] + 4.5)
+        for m in vis:
+            if not m.get("charging"):
+                continue
+            mp = m["pos"]
+            to_me = math.atan2(p[1] - mp[1], p[0] - mp[0])
+            d = math.dist(mp[:2], p[:2])
+            if abs(wrap(m["aim"][0] - to_me)) * d > 8:
+                continue  # not pointed at us
+            if not self.los((mp[0], mp[1], mp[2] + 7), me_c):
+                continue
+            cov = self.find_cover(obs, me, vis, t)
+            if cov is not None and math.dist(cov, p[:2]) < 9:
+                self.goal_name = "laser-cover"
+                return self.go_to(obs, cov, t), me["energy"] > 5
+            # sidestep: keep one direction per charge so we actually get somewhere
+            if t > self.strafe_until:
+                self.strafe = -self.strafe
+                self.strafe_until = t + 0.9
+            ux, uy = math.cos(to_me), math.sin(to_me)
+            self.goal_name = "laser-dodge"
+            return self.steer(p, -uy * self.strafe, ux * self.strafe), me["energy"] > 5
+        return None
+
     def kinds_of(self, me):
         return {w["kind"]: i for i, w in enumerate(me["weapons"]) if w}
 
@@ -972,6 +1056,20 @@ class Bot:
                     return self.go_to(obs, cov, t), False
             self.goal_name = "heal"
             return (0.0, 0.0), False
+        # ambush: an enemy was just around; hold a hidden spot facing where it was
+        if self.T_AMBUSH and hp_frac > 0.5 and t > self.ambush_cool:
+            recent = [m for m in self.enemies.values()
+                      if m.get("id", -1) >= 0 and 1.0 < t - m["t"] < 12 and math.dist(m["pos"][:2], p[:2]) < 140]
+            if recent and self.nearby_loot(me, kinds, maxd=25.0) is None:
+                if self.ambush_until < t - 1:
+                    self.ambush_until = t + 7.0
+                    self.ambush_spot = self.find_cover(obs, me, recent, t)
+                if t < self.ambush_until:
+                    self.goal_name = "ambush"
+                    if self.ambush_spot is not None and math.dist(self.ambush_spot, p[:2]) > 2:
+                        return self.go_to(obs, self.ambush_spot, t), False
+                    return (0.0, 0.0), False
+                self.ambush_cool = t + 10.0
         goal = None
         budget = slack - 5
         # 1. weapons we want
@@ -1006,7 +1104,16 @@ class Bot:
         for dr in obs.get("drops", []):
             pos = dr["pos"]
             d = math.dist(pos[:2], p[:2])
-            if d > 220 or hp_frac < 0.3:
+            if d > (420 if self.T_DROPS else 220) or hp_frac < 0.3:
+                continue
+            if self.T_DROPS:
+                hostile = any(math.dist(m["pos"][:2], pos[:2]) < 80 for m in self.enemies.values()
+                              if t - m["t"] < 5 and m.get("id", -1) >= 0)
+                if hostile:
+                    continue
+                if dr.get("holder") is not None and dr.get("holder") != me.get("id"):
+                    continue
+                cands.append((d - 200, ("drop", dr["id"], pos)))
                 continue
             others_close = any(math.dist(m["pos"][:2], pos[:2]) < 60 for m in self.enemies.values() if t - m["t"] < 5)
             if others_close:
@@ -1026,9 +1133,32 @@ class Bot:
             if d > crange or d / 11 > budget:
                 continue
             cands.append((d + 10, ("crate", cid, pos)))
+        # 5. NPC drones: farm them from outside their aggro range
+        if self.T_FARM and hp_frac > 0.6:
+            for nid, (pos, ts, nhp) in self.npcs.items():
+                if t - ts > 20:
+                    continue
+                d = math.dist(pos[:2], p[:2])
+                if d > 200 or d / 11 > budget:
+                    continue
+                cands.append((d + 20, ("drone", nid, pos)))
         if cands:
             cands.sort(key=lambda c: c[0])
             kind, gid, pos = cands[0][1]
+            if kind == "drone":
+                d = math.dist(pos[:2], p[:2])
+                if d < 75:
+                    self.goal_name = "drone"
+                    return (0.0, 0.0), False
+            if kind == "drop" and self.T_DROPS:
+                d = math.dist(pos[:2], p[:2])
+                if 14 < d < 30:
+                    # look around before stepping into the ring
+                    if self.drop_scout is None or self.drop_scout[0] != gid:
+                        self.drop_scout = (gid, t)
+                    if t - self.drop_scout[1] < 1.5:
+                        self.goal_name = "drop-scout"
+                        return (0.0, 0.0), False
             # stick to a goal for a while; give up after 25 s
             if self.loot_goal != gid:
                 self.loot_goal = gid
