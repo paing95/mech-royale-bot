@@ -29,10 +29,14 @@ PRESETS = {
              "RETREAT_AT": 0.4},
     "tactical": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.7, "HEAL_BELOW": 0.5,
                  "RETREAT_AT": 0.35, "T_GROUP": True, "T_NOCHASE": True, "T_FARM": True, "T_AMBUSH": True,
-                 "T_DROPS": True, "T_DODGE": True, "T_MORTAR": True, "T_BACKS": True},  # sim 5.19
+                 "T_DROPS": True, "T_DODGE": True, "T_MORTAR": True, "T_BACKS": True},  # sim 5.19, real 5.25
     "tactical2": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.7, "HEAL_BELOW": 0.5,
                   "RETREAT_AT": 0.35, "T_NOCHASE": True, "T_FARM": True, "T_AMBUSH": True,
-                  "T_DROPS": True, "T_DODGE": True, "T_MORTAR": True},  # sim 5.44
+                  "T_DROPS": True, "T_DODGE": True, "T_MORTAR": True},  # sim 5.44, real 5.38
+    "aggfarm": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.7, "HEAL_BELOW": 0.5,
+                "RETREAT_AT": 0.35, "T_FARM": True, "T_DROPS": True},
+    "aggdodge": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.7, "HEAL_BELOW": 0.5,
+                 "RETREAT_AT": 0.35, "T_DODGE": True, "T_MORTAR": True},
     "berserk": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.45, "HEAL_BELOW": 0.3,
                 "RETREAT_AT": 0.2},  # scored 5.13
     "nearheal": {"RANGE_LASER": 40.0, "RANGE_GUN": 30.0, "RELOAD_COVER": True, "RESUME_AT": 0.95, "HEAL_BELOW": 0.92},  # scored 5.10
@@ -41,7 +45,7 @@ PRESETS = {
         "lightning_efficiency", "gun_mag", "gyros"]},  # scored 4.96
     "lead":  {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": True, "LEAD_FRAC": 0.7},
 }
-PRESET = "tactical2"
+PRESET = "aggfarm"
 # ------------------------------------------------------------------------------------------
 
 TAU = 2 * math.pi
