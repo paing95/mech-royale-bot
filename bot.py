@@ -16,7 +16,7 @@ PRESETS = {
     "close": {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": False},
     "peek":  {"RANGE_LASER": 60.0, "RANGE_GUN": 45.0, "RELOAD_COVER": True},
 }
-PRESET = "close"
+PRESET = "peek"
 # ------------------------------------------------------------------------------------------
 
 TAU = 2 * math.pi
